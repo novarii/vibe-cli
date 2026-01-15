@@ -19,6 +19,7 @@ type Config struct {
 	MaxIterations     int
 	CompletionPromise string
 	PromptFile        string
+	YoloMode          bool // Full auto: uses -p flag, non-interactive
 }
 
 // Runner executes the Claude loop
@@ -117,11 +118,22 @@ func (r *Runner) runIteration(containerName string) (int, string, error) {
 		return -1, "", fmt.Errorf("prompt file not found: %s", promptPath)
 	}
 
-	// Run: cat prompt.md | claude --dangerously-skip-permissions
-	// This matches the working shell command exactly
-	claudeCmd := []string{
-		"sh", "-c",
-		fmt.Sprintf("cat /workspace/%s | claude --dangerously-skip-permissions", r.config.PromptFile),
+	var claudeCmd []string
+
+	if r.config.YoloMode {
+		// YOLO mode: use -p flag for fully non-interactive print mode
+		// Reads prompt, runs to completion, prints output
+		claudeCmd = []string{
+			"sh", "-c",
+			fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat /workspace/%s)\"", r.config.PromptFile),
+		}
+	} else {
+		// Default: interactive mode with piped prompt
+		// cat prompt.md | claude --dangerously-skip-permissions
+		claudeCmd = []string{
+			"sh", "-c",
+			fmt.Sprintf("cat /workspace/%s | claude --dangerously-skip-permissions", r.config.PromptFile),
+		}
 	}
 
 	// Run with output capture

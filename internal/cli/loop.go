@@ -14,6 +14,7 @@ var (
 	maxIterations     int
 	completionPromise string
 	promptFile        string
+	yoloMode          bool
 )
 
 var loopCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func init() {
 	loopCmd.Flags().IntVar(&maxIterations, "max-iterations", config.DefaultMaxIterations, "Max iterations (0 = unlimited)")
 	loopCmd.Flags().StringVar(&completionPromise, "completion-promise", "", "Stop when <promise>VALUE</promise> detected")
 	loopCmd.Flags().StringVar(&promptFile, "prompt-file", config.DefaultPromptFile, "Prompt file to use")
+	loopCmd.Flags().BoolVar(&yoloMode, "yolo", false, "Full auto mode: non-interactive, just prints output")
 }
 
 func runLoop(cmd *cobra.Command, args []string) error {
@@ -89,6 +91,11 @@ func runLoop(cmd *cobra.Command, args []string) error {
 	if completionPromise != "" {
 		fmt.Printf("  Completion promise: <promise>%s</promise>\n", completionPromise)
 	}
+	if yoloMode {
+		fmt.Println("  Mode: YOLO (full auto, non-interactive)")
+	} else {
+		fmt.Println("  Mode: Interactive (Ctrl+C to exit)")
+	}
 
 	// Create and run the loop
 	loopCfg := loop.Config{
@@ -98,6 +105,7 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		MaxIterations:     maxIterations,
 		CompletionPromise: completionPromise,
 		PromptFile:        promptFile,
+		YoloMode:          yoloMode,
 	}
 
 	runner := loop.NewRunner(dockerClient, loopCfg)
