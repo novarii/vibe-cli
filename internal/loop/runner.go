@@ -133,22 +133,30 @@ func (r *Runner) runIteration(containerName string) (int, string, error) {
 		return -1, "", fmt.Errorf("prompt file not found: %s", promptPath)
 	}
 
-	var claudeCmd []string
-
 	if r.config.YoloMode {
 		// YOLO mode: use -p flag with streaming for non-interactive mode
-		// Shows all tool calls and progress as streamed JSON
-		claudeCmd = []string{
+		// Stream and format JSON output in real-time
+		claudeCmd := []string{
 			"sh", "-c",
 			fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat /workspace/%s)\" --output-format stream-json --verbose", r.config.PromptFile),
 		}
-	} else {
-		// Default: interactive mode with piped prompt
-		// cat prompt.md | claude --dangerously-skip-permissions
-		claudeCmd = []string{
-			"sh", "-c",
-			fmt.Sprintf("cat /workspace/%s | claude --dangerously-skip-permissions", r.config.PromptFile),
-		}
+
+		// Create stream formatter
+		formatter := NewStreamFormatter(os.Stdout)
+
+		// Run with streaming output
+		exitCode, output, err := r.docker.ExecStreaming(containerName, claudeCmd, func(line string) {
+			formatter.ProcessLine(line)
+		})
+
+		return exitCode, output, err
+	}
+
+	// Default: interactive mode with piped prompt
+	// cat prompt.md | claude --dangerously-skip-permissions
+	claudeCmd := []string{
+		"sh", "-c",
+		fmt.Sprintf("cat /workspace/%s | claude --dangerously-skip-permissions", r.config.PromptFile),
 	}
 
 	// Run with output capture

@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/moby/term"
 )
 
@@ -187,6 +189,93 @@ type captureWriter struct {
 func (cw *captureWriter) Write(p []byte) (n int, err error) {
 	*cw.buffer = append(*cw.buffer, p...)
 	return cw.writer.Write(p)
+}
+
+// ExecStreaming runs a command and streams output through a processor function
+// Used for YOLO mode to format stream-json output in real-time
+func (c *Client) ExecStreaming(containerName string, cmd []string, processor func(line string)) (int, string, error) {
+	execConfig := types.ExecConfig{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          false, // No TTY for non-interactive streaming
+	}
+
+	execID, err := c.cli.ContainerExecCreate(c.ctx, containerName, execConfig)
+	if err != nil {
+		return -1, "", fmt.Errorf("failed to create exec: %w", err)
+	}
+
+	// Attach to exec
+	resp, err := c.cli.ContainerExecAttach(c.ctx, execID.ID, types.ExecStartCheck{
+		Tty: false,
+	})
+	if err != nil {
+		return -1, "", fmt.Errorf("failed to attach to exec: %w", err)
+	}
+	defer resp.Close()
+
+	// Handle Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// Read output with demuxing (stdout/stderr are multiplexed without TTY)
+	var output []byte
+	done := make(chan struct{})
+
+	// Create a pipe to handle demuxed output
+	pr, pw := io.Pipe()
+
+	// Demux in a goroutine
+	go func() {
+		// StdCopy demultiplexes the stream
+		_, err := stdcopy.StdCopy(pw, pw, resp.Reader)
+		if err != nil && err != io.EOF {
+			// Ignore errors, just close
+		}
+		pw.Close()
+	}()
+
+	// Read line by line and process
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 1024*1024) // Allow large lines
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			output = append(output, line...)
+			output = append(output, '\n')
+			processor(line)
+		}
+		close(done)
+	}()
+
+	// Wait for completion or interrupt
+	select {
+	case <-sigChan:
+		// User interrupted - kill the claude process inside container
+		resp.Close()
+		// Kill claude processes with stream-json output (YOLO mode)
+		killCmd := types.ExecConfig{
+			Cmd: []string{"pkill", "-f", "stream-json"},
+		}
+		if killExec, err := c.cli.ContainerExecCreate(c.ctx, containerName, killCmd); err == nil {
+			c.cli.ContainerExecStart(c.ctx, killExec.ID, types.ExecStartCheck{})
+		}
+		return 130, string(output), nil
+	case <-done:
+		// Normal completion
+	}
+
+	// Get exit code
+	inspect, err := c.cli.ContainerExecInspect(c.ctx, execID.ID)
+	if err != nil {
+		return -1, string(output), nil
+	}
+
+	return inspect.ExitCode, string(output), nil
 }
 
 // ExecInteractiveWithPrompt runs an interactive command with initial prompt piped to stdin
