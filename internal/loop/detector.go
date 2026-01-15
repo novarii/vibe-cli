@@ -60,3 +60,31 @@ func (d *PromiseDetector) ExtractPromise(output string) string {
 
 	return ""
 }
+
+// PRDetector detects GitHub PR URLs in output
+type PRDetector struct {
+	pattern *regexp.Regexp
+}
+
+// NewPRDetector creates a new PR detector
+func NewPRDetector() *PRDetector {
+	// Matches: https://github.com/owner/repo/pull/123
+	pattern := regexp.MustCompile(`https://github\.com/[^/\s]+/[^/\s]+/pull/\d+`)
+	return &PRDetector{pattern: pattern}
+}
+
+// Detect checks if a PR URL is found in the output
+func (d *PRDetector) Detect(output string) bool {
+	if d == nil {
+		return false
+	}
+	return d.pattern.MatchString(output)
+}
+
+// ExtractURL extracts the PR URL from output if present
+func (d *PRDetector) ExtractURL(output string) string {
+	if d == nil {
+		return ""
+	}
+	return d.pattern.FindString(output)
+}

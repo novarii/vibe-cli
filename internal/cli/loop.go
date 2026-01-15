@@ -15,6 +15,7 @@ var (
 	completionPromise string
 	promptFile        string
 	yoloMode          bool
+	detectPR          bool
 )
 
 var loopCmd = &cobra.Command{
@@ -32,6 +33,7 @@ The loop will:
 Exit conditions:
 - Max iterations reached (--max-iterations)
 - Completion promise detected (--completion-promise)
+- PR created (--detect-pr, enabled by default)
 - User interrupt (Ctrl+C)
 - Claude error (non-zero exit)`,
 	Args: cobra.ExactArgs(1),
@@ -47,6 +49,7 @@ func init() {
 	loopCmd.Flags().StringVar(&completionPromise, "completion-promise", "", "Stop when <promise>VALUE</promise> detected")
 	loopCmd.Flags().StringVar(&promptFile, "prompt-file", config.DefaultPromptFile, "Prompt file to use")
 	loopCmd.Flags().BoolVar(&yoloMode, "yolo", false, "Full auto mode: non-interactive, just prints output")
+	loopCmd.Flags().BoolVar(&detectPR, "detect-pr", true, "Exit loop when PR is created (detects GitHub PR URLs)")
 }
 
 func runLoop(cmd *cobra.Command, args []string) error {
@@ -96,6 +99,9 @@ func runLoop(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Println("  Mode: Interactive (Ctrl+C to exit)")
 	}
+	if detectPR {
+		fmt.Println("  PR detection: enabled (exits on PR creation)")
+	}
 
 	// Create and run the loop
 	loopCfg := loop.Config{
@@ -106,6 +112,7 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		CompletionPromise: completionPromise,
 		PromptFile:        promptFile,
 		YoloMode:          yoloMode,
+		DetectPR:          detectPR,
 	}
 
 	runner := loop.NewRunner(dockerClient, loopCfg)

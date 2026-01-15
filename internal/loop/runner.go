@@ -20,21 +20,29 @@ type Config struct {
 	CompletionPromise string
 	PromptFile        string
 	YoloMode          bool // Full auto: uses -p flag, non-interactive
+	DetectPR          bool // Exit when PR is created
 }
 
 // Runner executes the Claude loop
 type Runner struct {
-	docker   *docker.Client
-	config   Config
-	detector *PromiseDetector
+	docker     *docker.Client
+	config     Config
+	detector   *PromiseDetector
+	prDetector *PRDetector
 }
 
 // NewRunner creates a new loop runner
 func NewRunner(dockerClient *docker.Client, cfg Config) *Runner {
+	var prDetector *PRDetector
+	if cfg.DetectPR {
+		prDetector = NewPRDetector()
+	}
+
 	return &Runner{
-		docker:   dockerClient,
-		config:   cfg,
-		detector: NewPromiseDetector(cfg.CompletionPromise),
+		docker:     dockerClient,
+		config:     cfg,
+		detector:   NewPromiseDetector(cfg.CompletionPromise),
+		prDetector: prDetector,
 	}
 }
 
@@ -99,6 +107,13 @@ func (r *Runner) Run() error {
 			return nil
 		}
 
+		// Check for PR creation
+		if r.prDetector != nil && r.prDetector.Detect(output) {
+			prURL := r.prDetector.ExtractURL(output)
+			fmt.Printf("\nPR created: %s\nTask complete!\n", prURL)
+			return nil
+		}
+
 		// Check for interrupt (Ctrl+C kills the whole loop)
 		select {
 		case <-sigChan:
@@ -121,11 +136,11 @@ func (r *Runner) runIteration(containerName string) (int, string, error) {
 	var claudeCmd []string
 
 	if r.config.YoloMode {
-		// YOLO mode: use -p flag for fully non-interactive print mode
-		// Reads prompt, runs to completion, prints output
+		// YOLO mode: use -p flag with streaming for non-interactive mode
+		// Shows all tool calls and progress as streamed JSON
 		claudeCmd = []string{
 			"sh", "-c",
-			fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat /workspace/%s)\"", r.config.PromptFile),
+			fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat /workspace/%s)\" --output-format stream-json --verbose", r.config.PromptFile),
 		}
 	} else {
 		// Default: interactive mode with piped prompt

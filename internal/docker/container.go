@@ -44,6 +44,7 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 	}
 
 	claudeDir := filepath.Join(homeDir, ".claude")
+	ghConfigDir := filepath.Join(homeDir, ".config", "gh")
 
 	// Ensure .claude directory exists
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
@@ -55,8 +56,20 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		fmt.Sprintf("%s:/home/user/.claude", claudeDir),
 	}
 
+	// Environment variables for container
+	envVars := []string{}
+
+	// Pass GH_TOKEN if set on host (for GitHub CLI auth via PAT)
+	if ghToken := os.Getenv("GH_TOKEN"); ghToken != "" {
+		envVars = append(envVars, "GH_TOKEN="+ghToken)
+	} else if _, err := os.Stat(ghConfigDir); err == nil {
+		// Fallback: mount gh config if it exists
+		volumes = append(volumes, fmt.Sprintf("%s:/home/user/.config/gh", ghConfigDir))
+		envVars = append(envVars, "GH_CONFIG_DIR=/home/user/.config/gh")
+	}
+
 	fmt.Printf("Creating container %s...\n", cfg.Name)
-	if err := c.CreateContainer(cfg.Name, cfg.Image, cfg.WorkDir, volumes); err != nil {
+	if err := c.CreateContainer(cfg.Name, cfg.Image, cfg.WorkDir, volumes, envVars); err != nil {
 		return err
 	}
 

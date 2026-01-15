@@ -86,7 +86,7 @@ func (c *Client) GetContainerStatus(name string) (string, error) {
 }
 
 // CreateContainer creates a new container
-func (c *Client) CreateContainer(name, image, workdir string, volumes []string) error {
+func (c *Client) CreateContainer(name, image, workdir string, volumes []string, envVars []string) error {
 	// Convert volumes to mounts
 	var mounts []mount.Mount
 	for _, vol := range volumes {
@@ -114,6 +114,7 @@ func (c *Client) CreateContainer(name, image, workdir string, volumes []string) 
 		WorkingDir: workdir,
 		Tty:        true,
 		OpenStdin:  true,
+		Env:        envVars,
 	}
 
 	hostConfig := &container.HostConfig{
