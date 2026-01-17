@@ -32,7 +32,7 @@ type ContentBlock struct {
 	Input map[string]any `json:"input,omitempty"`
 	// For tool_result
 	ToolUseID string `json:"tool_use_id,omitempty"`
-	Content   string `json:"content,omitempty"`
+	Content   any    `json:"content,omitempty"` // Can be string or array
 }
 
 // StreamFormatter formats Claude stream-json output
