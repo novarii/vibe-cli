@@ -36,4 +36,5 @@ func init() {
 	rootCmd.AddCommand(loopCmd)
 	rootCmd.AddCommand(cleanupCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(terminalCmd)
 }
