@@ -58,9 +58,10 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
 	}
 
-	// Mount ~/.claude.json if it exists (contains MCP servers, user prefs)
+	// Mount ~/.claude.json read-only if it exists (contains MCP servers, user prefs)
+	// Read-only prevents corruption from concurrent writes by host and container Claude
 	if _, err := os.Stat(claudeJson); err == nil {
-		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.claude.json", claudeJson))
+		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.claude.json:ro", claudeJson))
 	}
 
 	// Environment variables for container
