@@ -45,6 +45,7 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 	}
 
 	claudeDir := filepath.Join(homeDir, ".claude")
+	claudeJson := filepath.Join(homeDir, ".claude.json")
 	ghConfigDir := filepath.Join(homeDir, ".config", "gh")
 
 	// Ensure .claude directory exists
@@ -54,7 +55,12 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 
 	volumes := []string{
 		fmt.Sprintf("%s:/workspace", cfg.WorktreePath),
-		fmt.Sprintf("%s:/home/user/.claude", claudeDir),
+		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
+	}
+
+	// Mount ~/.claude.json if it exists (contains MCP servers, user prefs)
+	if _, err := os.Stat(claudeJson); err == nil {
+		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.claude.json", claudeJson))
 	}
 
 	// Environment variables for container
@@ -65,8 +71,8 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		envVars = append(envVars, "GH_TOKEN="+ghToken)
 	} else if _, err := os.Stat(ghConfigDir); err == nil {
 		// Fallback: mount gh config if it exists
-		volumes = append(volumes, fmt.Sprintf("%s:/home/user/.config/gh", ghConfigDir))
-		envVars = append(envVars, "GH_CONFIG_DIR=/home/user/.config/gh")
+		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.config/gh", ghConfigDir))
+		envVars = append(envVars, "GH_CONFIG_DIR=/home/agent/.config/gh")
 	}
 
 	// Add extra env vars from .vibe.yaml
