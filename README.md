@@ -123,9 +123,35 @@ The Docker container:
 - Mounts `~/.claude` for Claude authentication
 - Passes `GH_TOKEN` env var for GitHub CLI auth (if set)
 
+## Configuration
+
+Create a `.vibe.yaml` in your project root to configure file copying and environment variables:
+
+```yaml
+# Files to copy from main repo to worktree (for gitignored files)
+copy:
+  - .env
+  - .env.local
+  - config/secrets.json
+
+# Environment variables to pass to the container
+env:
+  - DATABASE_URL
+  - API_KEY
+  - OPENAI_API_KEY
+```
+
+### Config Options
+
+| Option | Description |
+|--------|-------------|
+| `copy` | List of files/globs to copy from main repo to worktree after creation |
+| `env` | List of environment variable names to pass through to the container |
+
 ## Environment Variables
 
 - `GH_TOKEN` - GitHub personal access token for `gh` CLI in containers
+- Any variables listed in `.vibe.yaml` `env` section
 
 ## Example Workflow
 

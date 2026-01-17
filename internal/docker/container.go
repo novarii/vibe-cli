@@ -10,10 +10,11 @@ import (
 
 // ContainerConfig holds configuration for creating a container
 type ContainerConfig struct {
-	Name        string
-	Image       string
-	WorkDir     string
+	Name         string
+	Image        string
+	WorkDir      string
 	WorktreePath string
+	ExtraEnv     map[string]string // Additional env vars from .vibe.yaml
 }
 
 // EnsureContainer ensures a container exists and is running
@@ -66,6 +67,11 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		// Fallback: mount gh config if it exists
 		volumes = append(volumes, fmt.Sprintf("%s:/home/user/.config/gh", ghConfigDir))
 		envVars = append(envVars, "GH_CONFIG_DIR=/home/user/.config/gh")
+	}
+
+	// Add extra env vars from .vibe.yaml
+	for name, value := range cfg.ExtraEnv {
+		envVars = append(envVars, name+"="+value)
 	}
 
 	fmt.Printf("Creating container %s...\n", cfg.Name)

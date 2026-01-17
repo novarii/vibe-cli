@@ -37,6 +37,18 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
+	// Get repo root for loading config and copying files
+	repoRoot, err := git.GetRepoRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get repo root: %w", err)
+	}
+
+	// Load .vibe.yaml config
+	vibeCfg, err := config.LoadVibeConfig(repoRoot)
+	if err != nil {
+		return fmt.Errorf("failed to load .vibe.yaml: %w", err)
+	}
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
 	fmt.Printf("Base branch: %s\n", base)
@@ -59,6 +71,14 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Copy files from .vibe.yaml config
+	if len(vibeCfg.Copy) > 0 {
+		fmt.Printf("Copying files from .vibe.yaml...\n")
+		if err := vibeCfg.CopyFiles(repoRoot, worktreePath); err != nil {
+			return fmt.Errorf("failed to copy files: %w", err)
+		}
+	}
+
 	// Create Docker client
 	dockerClient, err := docker.NewClient()
 	if err != nil {
@@ -66,8 +86,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 	defer dockerClient.Close()
 
-	// Ensure container is running
+	// Ensure container is running with env vars from config
 	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath)
+	containerCfg.ExtraEnv = vibeCfg.GetEnvValues()
 	if err := dockerClient.EnsureContainer(containerCfg); err != nil {
 		return err
 	}
