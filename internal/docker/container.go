@@ -58,11 +58,6 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
 	}
 
-	// Mount ~/.claude.json read-only if it exists (contains MCP servers, user prefs)
-	// Read-only prevents corruption from concurrent writes by host and container Claude
-	if _, err := os.Stat(claudeJson); err == nil {
-		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.claude.json:ro", claudeJson))
-	}
 
 	// Environment variables for container
 	envVars := []string{}
@@ -87,7 +82,20 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 	}
 
 	fmt.Printf("Starting container %s...\n", cfg.Name)
-	return c.StartContainer(cfg.Name)
+	if err := c.StartContainer(cfg.Name); err != nil {
+		return err
+	}
+
+	// Copy ~/.claude.json into container (not mounted to avoid corruption)
+	if _, err := os.Stat(claudeJson); err == nil {
+		fmt.Printf("Copying Claude config to container...\n")
+		if err := c.CopyFileToContainer(cfg.Name, claudeJson, "/home/agent/.claude.json"); err != nil {
+			// Non-fatal, just warn
+			fmt.Printf("Warning: failed to copy .claude.json: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
 // DefaultContainerConfig returns a default container configuration

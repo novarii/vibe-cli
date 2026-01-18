@@ -1,10 +1,13 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -209,4 +212,49 @@ func (c *Client) PullImage(image string) error {
 func (c *Client) ImageExists(image string) bool {
 	_, _, err := c.cli.ImageInspectWithRaw(c.ctx, image)
 	return err == nil
+}
+
+// CopyFileToContainer copies a file from host to container
+func (c *Client) CopyFileToContainer(containerName, srcPath, dstPath string) error {
+	// Read source file
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	// Get file info for permissions
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+
+	// Create tar archive with the file
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	hdr := &tar.Header{
+		Name: filepath.Base(dstPath),
+		Mode: int64(info.Mode()),
+		Size: int64(len(content)),
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("failed to write tar header: %w", err)
+	}
+
+	if _, err := tw.Write(content); err != nil {
+		return fmt.Errorf("failed to write tar content: %w", err)
+	}
+
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("failed to close tar writer: %w", err)
+	}
+
+	// Copy to container
+	err = c.cli.CopyToContainer(c.ctx, containerName, filepath.Dir(dstPath), &buf, types.CopyToContainerOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to copy to container: %w", err)
+	}
+
+	return nil
 }
