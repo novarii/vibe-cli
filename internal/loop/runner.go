@@ -16,7 +16,7 @@ type Config struct {
 	Feature           string
 	Project           string
 	WorktreePath      string
-	MainRepoPath      string // Path to main repo for worktree git support
+	MainGitDir        string // Path to main repo's .git dir for worktree support
 	MaxIterations     int
 	CompletionPromise string
 	PromptFile        string
@@ -56,7 +56,7 @@ func (r *Runner) Run() error {
 	}
 
 	// Ensure container is running
-	containerCfg := docker.DefaultContainerConfig(r.config.Project, r.config.Feature, r.config.WorktreePath, r.config.MainRepoPath)
+	containerCfg := docker.DefaultContainerConfig(r.config.Project, r.config.Feature, r.config.WorktreePath, r.config.MainGitDir)
 	if err := r.docker.EnsureContainer(containerCfg); err != nil {
 		return err
 	}

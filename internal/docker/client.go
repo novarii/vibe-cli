@@ -23,6 +23,23 @@ type Client struct {
 	ctx context.Context
 }
 
+// splitVolume splits a volume string like "source:target:options"
+// handling absolute paths that start with /
+func splitVolume(vol string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i < len(vol); i++ {
+		if vol[i] == ':' {
+			parts = append(parts, vol[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(vol) {
+		parts = append(parts, vol[start:])
+	}
+	return parts
+}
+
 // NewClient creates a new Docker client
 func NewClient() (*Client, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -93,23 +110,26 @@ func (c *Client) CreateContainer(name, image, workdir string, volumes []string, 
 	// Convert volumes to mounts
 	var mounts []mount.Mount
 	for _, vol := range volumes {
-		// Parse "source:target" format
-		var source, target string
-		for i, ch := range vol {
-			if ch == ':' {
-				source = vol[:i]
-				target = vol[i+1:]
-				break
-			}
+		// Parse "source:target" or "source:target:options" format
+		parts := splitVolume(vol)
+		if len(parts) < 2 {
+			continue
 		}
 
-		if source != "" && target != "" {
-			mounts = append(mounts, mount.Mount{
-				Type:   mount.TypeBind,
-				Source: source,
-				Target: target,
-			})
+		source := parts[0]
+		target := parts[1]
+		readOnly := false
+
+		if len(parts) >= 3 && parts[2] == "ro" {
+			readOnly = true
 		}
+
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   source,
+			Target:   target,
+			ReadOnly: readOnly,
+		})
 	}
 
 	config := &container.Config{

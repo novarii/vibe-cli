@@ -61,10 +61,10 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
-	// Get repo root for git worktree support
-	repoRoot, err := git.GetRepoRoot()
+	// Get main git dir for worktree support
+	mainGitDir, err := git.GetMainGitDir()
 	if err != nil {
-		return fmt.Errorf("failed to get repo root: %w", err)
+		return fmt.Errorf("failed to get main git dir: %w", err)
 	}
 
 	fmt.Printf("Project: %s\n", project)
@@ -114,7 +114,7 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		Feature:           feature,
 		Project:           project,
 		WorktreePath:      worktreePath,
-		MainRepoPath:      repoRoot,
+		MainGitDir:        mainGitDir,
 		MaxIterations:     maxIterations,
 		CompletionPromise: completionPromise,
 		PromptFile:        promptFile,

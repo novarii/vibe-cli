@@ -43,6 +43,12 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get repo root: %w", err)
 	}
 
+	// Get main git dir for worktree support
+	mainGitDir, err := git.GetMainGitDir()
+	if err != nil {
+		return fmt.Errorf("failed to get main git dir: %w", err)
+	}
+
 	// Load .vibe.yaml config
 	vibeCfg, err := config.LoadVibeConfig(repoRoot)
 	if err != nil {
@@ -87,7 +93,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	defer dockerClient.Close()
 
 	// Ensure container is running with env vars from config
-	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, repoRoot)
+	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, mainGitDir)
 	containerCfg.ExtraEnv = vibeCfg.GetEnvValues()
 	if err := dockerClient.EnsureContainer(containerCfg); err != nil {
 		return err

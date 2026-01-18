@@ -14,7 +14,7 @@ type ContainerConfig struct {
 	Image        string
 	WorkDir      string
 	WorktreePath string
-	MainRepoPath string            // Path to main repo (for worktree git support)
+	MainGitDir   string            // Path to main repo's .git dir (for worktree support)
 	ExtraEnv     map[string]string // Additional env vars from .vibe.yaml
 }
 
@@ -61,10 +61,9 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 
 	// Mount main repo's .git at same path for worktree support
 	// Worktrees reference the main repo via absolute path
-	if cfg.MainRepoPath != "" {
-		mainGitDir := filepath.Join(cfg.MainRepoPath, ".git")
-		if _, err := os.Stat(mainGitDir); err == nil {
-			volumes = append(volumes, fmt.Sprintf("%s:%s:ro", mainGitDir, mainGitDir))
+	if cfg.MainGitDir != "" {
+		if _, err := os.Stat(cfg.MainGitDir); err == nil {
+			volumes = append(volumes, fmt.Sprintf("%s:%s:ro", cfg.MainGitDir, cfg.MainGitDir))
 		}
 	}
 
@@ -109,13 +108,13 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 }
 
 // DefaultContainerConfig returns a default container configuration
-func DefaultContainerConfig(project, feature, worktreePath, mainRepoPath string) ContainerConfig {
+func DefaultContainerConfig(project, feature, worktreePath, mainGitDir string) ContainerConfig {
 	return ContainerConfig{
 		Name:         config.ContainerName(project, feature),
 		Image:        config.DefaultImage,
 		WorkDir:      "/workspace",
 		WorktreePath: worktreePath,
-		MainRepoPath: mainRepoPath,
+		MainGitDir:   mainGitDir,
 	}
 }
 
