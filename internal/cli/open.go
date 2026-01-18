@@ -30,6 +30,12 @@ func runOpen(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
+	// Get repo root for git worktree support
+	repoRoot, err := git.GetRepoRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get repo root: %w", err)
+	}
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
 
@@ -52,7 +58,7 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	defer dockerClient.Close()
 
 	// Ensure container is running
-	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath)
+	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, repoRoot)
 	if err := dockerClient.EnsureContainer(containerCfg); err != nil {
 		return err
 	}
