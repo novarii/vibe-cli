@@ -1,4 +1,5 @@
 # Binaries
+vibe
 bin/
 *.exe
 *.exe~
