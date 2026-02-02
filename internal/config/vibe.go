@@ -24,6 +24,9 @@ type VibeConfig struct {
 	// Mounts lists additional volume mounts for the container
 	Mounts []Mount `yaml:"mounts"`
 
+	// Network is the Docker network to connect the container to
+	Network string `yaml:"network"`
+
 	// PostCreate is a script to run after worktree creation
 	PostCreate string `yaml:"post_create"`
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
+	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -106,7 +107,7 @@ func (c *Client) GetContainerStatus(name string) (string, error) {
 }
 
 // CreateContainer creates a new container
-func (c *Client) CreateContainer(name, image, workdir string, volumes []string, envVars []string) error {
+func (c *Client) CreateContainer(name, image, workdir string, volumes []string, envVars []string, networkName string) error {
 	// Convert volumes to mounts
 	var mounts []mount.Mount
 	for _, vol := range volumes {
@@ -144,7 +145,17 @@ func (c *Client) CreateContainer(name, image, workdir string, volumes []string, 
 		Mounts: mounts,
 	}
 
-	_, err := c.cli.ContainerCreate(c.ctx, config, hostConfig, nil, nil, name)
+	// Set up network config if specified
+	var networkConfig *networktypes.NetworkingConfig
+	if networkName != "" {
+		networkConfig = &networktypes.NetworkingConfig{
+			EndpointsConfig: map[string]*networktypes.EndpointSettings{
+				networkName: {},
+			},
+		}
+	}
+
+	_, err := c.cli.ContainerCreate(c.ctx, config, hostConfig, networkConfig, nil, name)
 	if err != nil {
 		return fmt.Errorf("failed to create container: %w", err)
 	}

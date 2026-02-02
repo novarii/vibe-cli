@@ -14,8 +14,10 @@ type ContainerConfig struct {
 	Image        string
 	WorkDir      string
 	WorktreePath string
-	MainGitDir   string            // Path to main repo's .git dir (for worktree support)
-	ExtraEnv     map[string]string // Additional env vars from .vibe.yaml
+	MainGitDir   string              // Path to main repo's .git dir (for worktree support)
+	ExtraEnv     map[string]string   // Additional env vars from .vibe.yaml
+	ExtraMounts  map[string]string   // Additional volume mounts (source -> target)
+	Network      string              // Docker network to connect to
 }
 
 // EnsureContainer ensures a container exists and is running
@@ -56,17 +58,33 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 
 	volumes := []string{
 		fmt.Sprintf("%s:/workspace", cfg.WorktreePath),
+		// Mount at /home/agent/.claude for Claude to find config
 		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
+		// Also mount at same absolute path so plugin paths resolve correctly
+		fmt.Sprintf("%s:%s", claudeDir, claudeDir),
 	}
 
 	// Mount main repo's .git at same path for worktree support
 	// Worktrees reference the main repo via absolute path
+	// Note: read-write is needed for git add/commit operations
 	if cfg.MainGitDir != "" {
 		if _, err := os.Stat(cfg.MainGitDir); err == nil {
-			volumes = append(volumes, fmt.Sprintf("%s:%s:ro", cfg.MainGitDir, cfg.MainGitDir))
+			volumes = append(volumes, fmt.Sprintf("%s:%s", cfg.MainGitDir, cfg.MainGitDir))
 		}
 	}
 
+	// Mount SSH keys for git push (read-only)
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if _, err := os.Stat(sshDir); err == nil {
+		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.ssh:ro", sshDir))
+	}
+
+	// Add extra mounts from .vibe.yaml
+	for source, target := range cfg.ExtraMounts {
+		if _, err := os.Stat(source); err == nil {
+			volumes = append(volumes, fmt.Sprintf("%s:%s", source, target))
+		}
+	}
 
 	// Environment variables for container
 	envVars := []string{}
@@ -86,7 +104,7 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 	}
 
 	fmt.Printf("Creating container %s...\n", cfg.Name)
-	if err := c.CreateContainer(cfg.Name, cfg.Image, cfg.WorkDir, volumes, envVars); err != nil {
+	if err := c.CreateContainer(cfg.Name, cfg.Image, cfg.WorkDir, volumes, envVars, cfg.Network); err != nil {
 		return err
 	}
 

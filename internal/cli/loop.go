@@ -67,6 +67,18 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get main git dir: %w", err)
 	}
 
+	// Get repo root for loading config
+	repoRoot, err := git.GetRepoRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get repo root: %w", err)
+	}
+
+	// Load .vibe.yaml config
+	vibeCfg, err := config.LoadVibeConfig(repoRoot)
+	if err != nil {
+		return fmt.Errorf("failed to load .vibe.yaml: %w", err)
+	}
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
 
@@ -115,6 +127,9 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		Project:           project,
 		WorktreePath:      worktreePath,
 		MainGitDir:        mainGitDir,
+		ExtraEnv:          vibeCfg.GetEnvValues(),
+		ExtraMounts:       vibeCfg.GetMounts(),
+		Network:           vibeCfg.Network,
 		MaxIterations:     maxIterations,
 		CompletionPromise: completionPromise,
 		PromptFile:        promptFile,

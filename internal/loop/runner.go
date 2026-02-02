@@ -16,7 +16,10 @@ type Config struct {
 	Feature           string
 	Project           string
 	WorktreePath      string
-	MainGitDir        string // Path to main repo's .git dir for worktree support
+	MainGitDir        string            // Path to main repo's .git dir for worktree support
+	ExtraEnv          map[string]string // Additional env vars from .vibe.yaml
+	ExtraMounts       map[string]string // Additional volume mounts from .vibe.yaml
+	Network           string            // Docker network to connect to
 	MaxIterations     int
 	CompletionPromise string
 	PromptFile        string
@@ -55,8 +58,11 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("prompt file not found: %s", promptPath)
 	}
 
-	// Ensure container is running
+	// Ensure container is running with env vars and mounts from config
 	containerCfg := docker.DefaultContainerConfig(r.config.Project, r.config.Feature, r.config.WorktreePath, r.config.MainGitDir)
+	containerCfg.ExtraEnv = r.config.ExtraEnv
+	containerCfg.ExtraMounts = r.config.ExtraMounts
+	containerCfg.Network = r.config.Network
 	if err := r.docker.EnsureContainer(containerCfg); err != nil {
 		return err
 	}

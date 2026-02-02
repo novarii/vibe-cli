@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/novari/vibe-cli/internal/config"
 	"github.com/novari/vibe-cli/internal/docker"
 	"github.com/novari/vibe-cli/internal/git"
 	"github.com/spf13/cobra"
@@ -36,6 +37,18 @@ func runOpen(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get main git dir: %w", err)
 	}
 
+	// Get repo root for loading config
+	repoRoot, err := git.GetRepoRoot()
+	if err != nil {
+		return fmt.Errorf("failed to get repo root: %w", err)
+	}
+
+	// Load .vibe.yaml config
+	vibeCfg, err := config.LoadVibeConfig(repoRoot)
+	if err != nil {
+		return fmt.Errorf("failed to load .vibe.yaml: %w", err)
+	}
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
 
@@ -57,8 +70,11 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	}
 	defer dockerClient.Close()
 
-	// Ensure container is running
+	// Ensure container is running with env vars and mounts from config
 	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, mainGitDir)
+	containerCfg.ExtraEnv = vibeCfg.GetEnvValues()
+	containerCfg.ExtraMounts = vibeCfg.GetMounts()
+	containerCfg.Network = vibeCfg.Network
 	if err := dockerClient.EnsureContainer(containerCfg); err != nil {
 		return err
 	}

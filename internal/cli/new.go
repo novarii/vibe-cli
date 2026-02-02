@@ -92,9 +92,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 	defer dockerClient.Close()
 
-	// Ensure container is running with env vars from config
+	// Ensure container is running with env vars and mounts from config
 	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, mainGitDir)
 	containerCfg.ExtraEnv = vibeCfg.GetEnvValues()
+	containerCfg.ExtraMounts = vibeCfg.GetMounts()
+	containerCfg.Network = vibeCfg.Network
 	if err := dockerClient.EnsureContainer(containerCfg); err != nil {
 		return err
 	}
