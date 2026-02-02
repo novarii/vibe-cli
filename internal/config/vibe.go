@@ -7,6 +7,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Mount represents a volume mount configuration
+type Mount struct {
+	Source string `yaml:"source"` // Host path
+	Target string `yaml:"target"` // Container path
+}
+
 // VibeConfig represents the .vibe.yaml configuration
 type VibeConfig struct {
 	// Copy lists files/patterns to copy from main repo to worktree
@@ -14,6 +20,9 @@ type VibeConfig struct {
 
 	// Env lists environment variables to pass to the container
 	Env []string `yaml:"env"`
+
+	// Mounts lists additional volume mounts for the container
+	Mounts []Mount `yaml:"mounts"`
 
 	// PostCreate is a script to run after worktree creation
 	PostCreate string `yaml:"post_create"`
@@ -55,6 +64,15 @@ func (c *VibeConfig) GetEnvValues() map[string]string {
 		if val, ok := os.LookupEnv(name); ok {
 			result[name] = val
 		}
+	}
+	return result
+}
+
+// GetMounts returns a map of source -> target for volume mounts
+func (c *VibeConfig) GetMounts() map[string]string {
+	result := make(map[string]string)
+	for _, m := range c.Mounts {
+		result[m.Source] = m.Target
 	}
 	return result
 }
@@ -130,20 +148,47 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, info.Mode())
 }
 
-// copyDir recursively copies a directory
+// copyDir recursively copies a directory, following symlinks
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	// Resolve symlinks at the source level
+	realSrc, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+
+	return filepath.Walk(realSrc, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Get relative path
-		relPath, err := filepath.Rel(src, path)
+		// Get relative path from the resolved source
+		relPath, err := filepath.Rel(realSrc, path)
 		if err != nil {
 			return err
 		}
 
 		dstPath := filepath.Join(dst, relPath)
+
+		// Check if this is a symlink
+		if info.Mode()&os.ModeSymlink != 0 {
+			// Resolve the symlink target
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return err
+			}
+
+			targetInfo, err := os.Stat(target)
+			if err != nil {
+				return err
+			}
+
+			if targetInfo.IsDir() {
+				// Recursively copy symlinked directory
+				return copyDir(path, dstPath)
+			}
+			// For symlinked files, copy the actual file
+			return copyFile(target, dstPath)
+		}
 
 		if info.IsDir() {
 			return os.MkdirAll(dstPath, info.Mode())
