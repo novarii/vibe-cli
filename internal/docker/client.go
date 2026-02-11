@@ -111,8 +111,18 @@ func (c *Client) CreateContainer(name, image, workdir string, volumes []string, 
 	// Convert volumes to mounts
 	var mounts []mount.Mount
 	for _, vol := range volumes {
-		// Parse "source:target" or "source:target:options" format
+		// Parse "source:target" or "source:target:options" or just "target" (anonymous volume)
 		parts := splitVolume(vol)
+
+		// Anonymous volume (just a target path) - creates empty volume at that path
+		if len(parts) == 1 {
+			mounts = append(mounts, mount.Mount{
+				Type:   mount.TypeVolume,
+				Target: parts[0],
+			})
+			continue
+		}
+
 		if len(parts) < 2 {
 			continue
 		}

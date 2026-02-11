@@ -58,6 +58,9 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 
 	volumes := []string{
 		fmt.Sprintf("%s:/workspace", cfg.WorktreePath),
+		// Anonymous volume for node_modules - shadows host's darwin binaries with linux ones
+		// Run pnpm/npm install inside container after first start
+		"/workspace/node_modules",
 		// Mount at /home/agent/.claude for Claude to find config
 		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
 		// Also mount at same absolute path so plugin paths resolve correctly

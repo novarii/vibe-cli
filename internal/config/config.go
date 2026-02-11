@@ -2,7 +2,7 @@ package config
 
 const (
 	// DefaultImage is the Docker image used for Claude containers
-	DefaultImage = "docker/sandbox-templates:claude-code"
+	DefaultImage = "vibe-claude:latest"
 
 	// DefaultPromptFile is the default prompt file name
 	DefaultPromptFile = "prompt.md"
