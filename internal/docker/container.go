@@ -4,20 +4,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/novari/vibe-cli/internal/config"
 )
 
 // ContainerConfig holds configuration for creating a container
 type ContainerConfig struct {
-	Name         string
-	Image        string
-	WorkDir      string
-	WorktreePath string
-	MainGitDir   string              // Path to main repo's .git dir (for worktree support)
-	ExtraEnv     map[string]string   // Additional env vars from .vibe.yaml
-	ExtraMounts  map[string]string   // Additional volume mounts (source -> target)
-	Network      string              // Docker network to connect to
+	Name        string
+	Image       string
+	WorkDir     string
+	RepoPath    string            // Host repo path to mount at /repo
+	ExtraEnv    map[string]string // Additional env vars from .vibe.yaml
+	ExtraMounts map[string]string // Additional volume mounts (source -> target)
+	Network     string            // Docker network to connect to
 }
 
 // EnsureContainer ensures a container exists and is running
@@ -57,29 +57,28 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 	}
 
 	volumes := []string{
-		fmt.Sprintf("%s:/workspace", cfg.WorktreePath),
-		// Anonymous volume for node_modules - shadows host's darwin binaries with linux ones
-		// Run pnpm/npm install inside container after first start
-		"/workspace/node_modules",
+		fmt.Sprintf("%s:%s", cfg.RepoPath, config.DefaultRepoMount),
 		// Mount at /home/agent/.claude for Claude to find config
 		fmt.Sprintf("%s:/home/agent/.claude", claudeDir),
 		// Also mount at same absolute path so plugin paths resolve correctly
 		fmt.Sprintf("%s:%s", claudeDir, claudeDir),
 	}
 
-	// Mount main repo's .git at same path for worktree support
-	// Worktrees reference the main repo via absolute path
-	// Note: read-write is needed for git add/commit operations
-	if cfg.MainGitDir != "" {
-		if _, err := os.Stat(cfg.MainGitDir); err == nil {
-			volumes = append(volumes, fmt.Sprintf("%s:%s", cfg.MainGitDir, cfg.MainGitDir))
-		}
-	}
-
 	// Mount SSH keys for git push (read-only)
 	sshDir := filepath.Join(homeDir, ".ssh")
 	if _, err := os.Stat(sshDir); err == nil {
 		volumes = append(volumes, fmt.Sprintf("%s:/home/agent/.ssh:ro", sshDir))
+	}
+
+	// SSH agent socket forwarding for git push/PR creation
+	if runtime.GOOS == "darwin" {
+		// macOS (Docker Desktop) exposes the host agent at a well-known path
+		volumes = append(volumes, "/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock")
+	} else {
+		// Linux: forward the actual SSH_AUTH_SOCK
+		if sshAuthSock := os.Getenv("SSH_AUTH_SOCK"); sshAuthSock != "" {
+			volumes = append(volumes, fmt.Sprintf("%s:%s", sshAuthSock, sshAuthSock))
+		}
 	}
 
 	// Add extra mounts from .vibe.yaml
@@ -91,6 +90,13 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 
 	// Environment variables for container
 	envVars := []string{}
+
+	// SSH agent socket env var
+	if runtime.GOOS == "darwin" {
+		envVars = append(envVars, "SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock")
+	} else if sshAuthSock := os.Getenv("SSH_AUTH_SOCK"); sshAuthSock != "" {
+		envVars = append(envVars, "SSH_AUTH_SOCK="+sshAuthSock)
+	}
 
 	// Pass GH_TOKEN if set on host (for GitHub CLI auth via PAT)
 	if ghToken := os.Getenv("GH_TOKEN"); ghToken != "" {
@@ -129,13 +135,12 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 }
 
 // DefaultContainerConfig returns a default container configuration
-func DefaultContainerConfig(project, feature, worktreePath, mainGitDir string) ContainerConfig {
+func DefaultContainerConfig(project, repoPath string) ContainerConfig {
 	return ContainerConfig{
-		Name:         config.ContainerName(project, feature),
-		Image:        config.DefaultImage,
-		WorkDir:      "/workspace",
-		WorktreePath: worktreePath,
-		MainGitDir:   mainGitDir,
+		Name:     config.ContainerName(project),
+		Image:    config.DefaultImage,
+		WorkDir:  config.DefaultRepoMount,
+		RepoPath: repoPath,
 	}
 }
 

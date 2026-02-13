@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os/exec"
 
 	"github.com/novari/vibe-cli/internal/config"
 	"github.com/novari/vibe-cli/internal/docker"
@@ -10,28 +11,33 @@ import (
 )
 
 var (
-	forceCleanup bool
+	forceCleanup    bool
+	removeContainer bool
 )
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup <feature>",
-	Short: "Remove worktree, branch, and Docker container",
-	Long: `Removes the git worktree, associated branch, and Docker container
-for the specified feature.
+	Use:   "cleanup <feature> [feature...]",
+	Short: "Remove worktrees and branches inside the container",
+	Long: `Removes git worktrees and associated branches inside the Docker container
+for the specified features.
 
-Use --force to force removal of a worktree with uncommitted changes.`,
-	Args:    cobra.ExactArgs(1),
-	RunE:    runCleanup,
-	Example: `  vibe cleanup auth          # Cleanup auth feature
-  vibe cleanup auth --force  # Force cleanup with uncommitted changes`,
+Use --force to force removal of worktrees with uncommitted changes.
+Use --remove-container to also stop and remove the Docker container.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runCleanup,
+	Example: `  vibe cleanup auth                    # Cleanup auth feature
+  vibe cleanup auth payments           # Cleanup multiple features
+  vibe cleanup auth --force            # Force cleanup with uncommitted changes
+  vibe cleanup auth --remove-container # Also remove the container`,
 }
 
 func init() {
 	cleanupCmd.Flags().BoolVarP(&forceCleanup, "force", "f", false, "Force removal even with uncommitted changes")
+	cleanupCmd.Flags().BoolVar(&removeContainer, "remove-container", false, "Also stop and remove the Docker container")
 }
 
 func runCleanup(cmd *cobra.Command, args []string) error {
-	feature := args[0]
+	features := args
 
 	// Get project name
 	project, err := git.GetProjectName()
@@ -39,44 +45,70 @@ func runCleanup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
+	// Resolve container name
+	containerName := resolveContainerName(project)
+
 	fmt.Printf("Project: %s\n", project)
-	fmt.Printf("Feature: %s\n", feature)
+	fmt.Printf("Container: %s\n", containerName)
 
-	// Get worktree path
-	worktreePath, err := git.GetWorktreePath(project, feature)
-	if err != nil {
-		return fmt.Errorf("failed to get worktree path: %w", err)
-	}
-
-	// Remove Docker container
+	// Create Docker client
 	dockerClient, err := docker.NewClient()
 	if err != nil {
 		return err
 	}
 	defer dockerClient.Close()
 
-	containerName := config.ContainerName(project, feature)
-	if err := dockerClient.CleanupContainer(containerName); err != nil {
-		fmt.Printf("Warning: failed to cleanup container: %v\n", err)
-	}
-
-	// Remove worktree
-	if git.WorktreeExists(worktreePath) {
-		fmt.Printf("Removing worktree at %s...\n", worktreePath)
-		if err := git.RemoveWorktree(worktreePath, forceCleanup); err != nil {
-			return err
+	// Check if container is running for worktree operations
+	if !dockerClient.ContainerRunning(containerName) {
+		if removeContainer {
+			// Container exists but not running — just clean it up
+			if err := dockerClient.CleanupContainer(containerName); err != nil {
+				fmt.Printf("Warning: failed to cleanup container: %v\n", err)
+			}
+			fmt.Println("\nCleanup complete.")
+			return nil
 		}
-	} else {
-		fmt.Printf("Worktree does not exist at %s\n", worktreePath)
+		return fmt.Errorf("container %s is not running — cannot remove worktrees", containerName)
 	}
 
-	// Delete branch
-	branch := config.BranchName(feature)
-	fmt.Printf("Deleting branch %s...\n", branch)
-	if err := git.DeleteBranch(branch, forceCleanup); err != nil {
-		fmt.Printf("Warning: failed to delete branch: %v\n", err)
+	// Set up ContainerGit for in-container operations
+	cg := &git.ContainerGit{
+		Docker:        dockerClient,
+		ContainerName: containerName,
 	}
 
-	fmt.Printf("\nCleanup complete for feature '%s'\n", feature)
+	// Remove worktrees and branches for each feature
+	for _, feature := range features {
+		branch := config.BranchName(feature)
+
+		fmt.Printf("\nCleaning up feature '%s'...\n", feature)
+
+		// Remove worktree
+		fmt.Printf("  Removing worktree %s...\n", config.WorktreePath(feature))
+		if err := cg.RemoveWorktree(feature, forceCleanup); err != nil {
+			fmt.Printf("  Warning: failed to remove worktree: %v\n", err)
+		}
+
+		// Delete branch
+		fmt.Printf("  Deleting branch %s...\n", branch)
+		if err := cg.DeleteBranch(branch, forceCleanup); err != nil {
+			fmt.Printf("  Warning: failed to delete branch: %v\n", err)
+		}
+	}
+
+	// If --remove-container, stop and remove the container, then prune stale worktree refs on host
+	if removeContainer {
+		fmt.Println()
+		if err := dockerClient.CleanupContainer(containerName); err != nil {
+			fmt.Printf("Warning: failed to cleanup container: %v\n", err)
+		}
+
+		// Prune stale worktree references on host (container worktree paths no longer exist)
+		if err := exec.Command("git", "worktree", "prune").Run(); err != nil {
+			fmt.Printf("Warning: failed to prune worktrees: %v\n", err)
+		}
+	}
+
+	fmt.Println("\nCleanup complete.")
 	return nil
 }

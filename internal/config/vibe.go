@@ -1,11 +1,19 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DockerExecer is the interface for running commands inside a container.
+// This avoids a circular import between config and docker packages.
+type DockerExecer interface {
+	ExecNonInteractive(containerName string, cmd []string) (int, string, error)
+}
 
 // Mount represents a volume mount configuration
 type Mount struct {
@@ -80,123 +88,46 @@ func (c *VibeConfig) GetMounts() map[string]string {
 	return result
 }
 
-// CopyFiles copies files matching the Copy patterns from srcDir to dstDir
-func (c *VibeConfig) CopyFiles(srcDir, dstDir string) error {
+// CopyFilesInContainer copies files matching Copy patterns from /repo to a worktree inside the container
+func (c *VibeConfig) CopyFilesInContainer(docker DockerExecer, containerName, feature string) error {
+	worktreePath := WorktreePath(feature)
+
 	for _, pattern := range c.Copy {
-		srcPath := filepath.Join(srcDir, pattern)
+		src := DefaultRepoMount + "/" + pattern
+		dst := worktreePath + "/"
 
-		// Check if it's a glob pattern
-		matches, err := filepath.Glob(srcPath)
-		if err != nil {
-			return err
-		}
-
-		// If no matches and no glob chars, treat as literal path
-		if len(matches) == 0 {
-			matches = []string{srcPath}
-		}
-
-		for _, match := range matches {
-			// Get relative path from srcDir
-			relPath, err := filepath.Rel(srcDir, match)
+		// Use shell glob expansion for patterns with wildcards
+		if strings.ContainsAny(pattern, "*?[") {
+			cmd := []string{"sh", "-c", fmt.Sprintf("cp -r %s %s", src, dst)}
+			exitCode, output, err := docker.ExecNonInteractive(containerName, cmd)
 			if err != nil {
-				continue
+				return fmt.Errorf("failed to copy %s: %w", pattern, err)
+			}
+			if exitCode != 0 {
+				return fmt.Errorf("failed to copy %s: %s", pattern, output)
+			}
+		} else {
+			// Ensure parent directory exists
+			dstDir := worktreePath + "/" + filepath.Dir(pattern)
+			if dstDir != worktreePath+"/" && dstDir != worktreePath+"/." {
+				exitCode, output, err := docker.ExecNonInteractive(containerName, []string{"mkdir", "-p", dstDir})
+				if err != nil {
+					return fmt.Errorf("failed to create directory %s: %w", dstDir, err)
+				}
+				if exitCode != 0 {
+					return fmt.Errorf("failed to create directory %s: %s", dstDir, output)
+				}
 			}
 
-			dstPath := filepath.Join(dstDir, relPath)
-
-			// Check if source exists
-			info, err := os.Stat(match)
-			if os.IsNotExist(err) {
-				continue // Skip non-existent files
-			}
+			cmd := []string{"cp", "-r", src, worktreePath + "/" + pattern}
+			exitCode, output, err := docker.ExecNonInteractive(containerName, cmd)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to copy %s: %w", pattern, err)
 			}
-
-			if info.IsDir() {
-				if err := copyDir(match, dstPath); err != nil {
-					return err
-				}
-			} else {
-				if err := copyFile(match, dstPath); err != nil {
-					return err
-				}
+			if exitCode != 0 {
+				return fmt.Errorf("failed to copy %s: %s", pattern, output)
 			}
 		}
 	}
 	return nil
-}
-
-// copyFile copies a single file
-func copyFile(src, dst string) error {
-	// Create parent directories
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	// Read source
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	// Get source permissions
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	// Write destination
-	return os.WriteFile(dst, data, info.Mode())
-}
-
-// copyDir recursively copies a directory, following symlinks
-func copyDir(src, dst string) error {
-	// Resolve symlinks at the source level
-	realSrc, err := filepath.EvalSymlinks(src)
-	if err != nil {
-		return err
-	}
-
-	return filepath.Walk(realSrc, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Get relative path from the resolved source
-		relPath, err := filepath.Rel(realSrc, path)
-		if err != nil {
-			return err
-		}
-
-		dstPath := filepath.Join(dst, relPath)
-
-		// Check if this is a symlink
-		if info.Mode()&os.ModeSymlink != 0 {
-			// Resolve the symlink target
-			target, err := filepath.EvalSymlinks(path)
-			if err != nil {
-				return err
-			}
-
-			targetInfo, err := os.Stat(target)
-			if err != nil {
-				return err
-			}
-
-			if targetInfo.IsDir() {
-				// Recursively copy symlinked directory
-				return copyDir(path, dstPath)
-			}
-			// For symlinked files, copy the actual file
-			return copyFile(target, dstPath)
-		}
-
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		return copyFile(path, dstPath)
-	})
 }

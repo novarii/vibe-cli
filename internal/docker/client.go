@@ -216,8 +216,9 @@ func (c *Client) ExecNonInteractive(containerName string, cmd []string) (int, st
 	}
 	defer resp.Close()
 
-	// Read output
-	output, err := io.ReadAll(resp.Reader)
+	// Demux stdout/stderr (Docker multiplexes with 8-byte headers when TTY is off)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	_, err = stdcopy.StdCopy(&stdoutBuf, &stderrBuf, resp.Reader)
 	if err != nil {
 		return -1, "", fmt.Errorf("failed to read exec output: %w", err)
 	}
@@ -225,10 +226,10 @@ func (c *Client) ExecNonInteractive(containerName string, cmd []string) (int, st
 	// Get exit code
 	inspect, err := c.cli.ContainerExecInspect(c.ctx, execID.ID)
 	if err != nil {
-		return -1, string(output), fmt.Errorf("failed to inspect exec: %w", err)
+		return -1, stdoutBuf.String(), fmt.Errorf("failed to inspect exec: %w", err)
 	}
 
-	return inspect.ExitCode, string(output), nil
+	return inspect.ExitCode, stdoutBuf.String(), nil
 }
 
 // PullImage pulls a Docker image

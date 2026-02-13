@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
+	"github.com/novari/vibe-cli/internal/config"
 	"github.com/novari/vibe-cli/internal/docker"
 )
 
@@ -15,8 +15,8 @@ import (
 type Config struct {
 	Feature           string
 	Project           string
-	WorktreePath      string
-	MainGitDir        string            // Path to main repo's .git dir for worktree support
+	ContainerName     string            // Resolved container name
+	RepoPath          string            // Host repo path to mount at /repo
 	ExtraEnv          map[string]string // Additional env vars from .vibe.yaml
 	ExtraMounts       map[string]string // Additional volume mounts from .vibe.yaml
 	Network           string            // Docker network to connect to
@@ -52,19 +52,25 @@ func NewRunner(dockerClient *docker.Client, cfg Config) *Runner {
 
 // Run executes the main loop
 func (r *Runner) Run() error {
-	// Verify prompt file exists
-	promptPath := filepath.Join(r.config.WorktreePath, r.config.PromptFile)
-	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
-		return fmt.Errorf("prompt file not found: %s", promptPath)
-	}
-
 	// Ensure container is running with env vars and mounts from config
-	containerCfg := docker.DefaultContainerConfig(r.config.Project, r.config.Feature, r.config.WorktreePath, r.config.MainGitDir)
+	containerCfg := docker.DefaultContainerConfig(r.config.Project, r.config.RepoPath)
+	containerCfg.Name = r.config.ContainerName
 	containerCfg.ExtraEnv = r.config.ExtraEnv
 	containerCfg.ExtraMounts = r.config.ExtraMounts
 	containerCfg.Network = r.config.Network
 	if err := r.docker.EnsureContainer(containerCfg); err != nil {
 		return err
+	}
+
+	// Verify prompt file exists inside container
+	wtPath := config.WorktreePath(r.config.Feature)
+	promptPath := wtPath + "/" + r.config.PromptFile
+	exitCode, _, err := r.docker.ExecNonInteractive(containerCfg.Name, []string{"test", "-f", promptPath})
+	if err != nil {
+		return fmt.Errorf("failed to check prompt file: %w", err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("prompt file not found in container: %s", promptPath)
 	}
 
 	// Set up signal handling
@@ -84,12 +90,12 @@ func (r *Runner) Run() error {
 		}
 
 		// Display iteration info
-		fmt.Printf("\n" + strings.Repeat("=", 60) + "\n")
+		fmt.Print("\n" + strings.Repeat("=", 60) + "\n")
 		fmt.Printf("ITERATION %d", iteration)
 		if r.config.MaxIterations > 0 {
 			fmt.Printf(" / %d", r.config.MaxIterations)
 		}
-		fmt.Printf("\n" + strings.Repeat("=", 60) + "\n\n")
+		fmt.Print("\n" + strings.Repeat("=", 60) + "\n\n")
 
 		// Run Claude for this iteration
 		exitCode, output, err := r.runIteration(containerCfg.Name)
@@ -134,18 +140,13 @@ func (r *Runner) Run() error {
 
 // runIteration runs a single iteration of Claude
 func (r *Runner) runIteration(containerName string) (int, string, error) {
-	// Verify prompt file exists locally
-	promptPath := filepath.Join(r.config.WorktreePath, r.config.PromptFile)
-	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
-		return -1, "", fmt.Errorf("prompt file not found: %s", promptPath)
-	}
+	wtPath := config.WorktreePath(r.config.Feature)
 
 	if r.config.YoloMode {
 		// YOLO mode: use -p flag with streaming for non-interactive mode
-		// Stream and format JSON output in real-time
 		claudeCmd := []string{
 			"sh", "-c",
-			fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat /workspace/%s)\" --output-format stream-json --verbose", r.config.PromptFile),
+			fmt.Sprintf("cd %s && claude --dangerously-skip-permissions -p \"$(cat %s)\" --output-format stream-json --verbose", wtPath, r.config.PromptFile),
 		}
 
 		// Create stream formatter
@@ -160,10 +161,9 @@ func (r *Runner) runIteration(containerName string) (int, string, error) {
 	}
 
 	// Default: interactive mode with piped prompt
-	// cat prompt.md | claude --dangerously-skip-permissions
 	claudeCmd := []string{
 		"sh", "-c",
-		fmt.Sprintf("cat /workspace/%s | claude --dangerously-skip-permissions", r.config.PromptFile),
+		fmt.Sprintf("cd %s && cat %s | claude --dangerously-skip-permissions", wtPath, r.config.PromptFile),
 	}
 
 	// Run with output capture

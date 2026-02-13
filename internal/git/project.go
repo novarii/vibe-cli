@@ -66,20 +66,3 @@ func GetRepoRoot() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// GetMainGitDir returns the path to the main repo's .git directory
-// For worktrees, this returns the common git dir (main repo's .git)
-// For regular repos, this returns the .git dir in the repo root
-func GetMainGitDir() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("not a git repository")
-	}
-	// --git-common-dir may return a relative path, so resolve it
-	gitDir := strings.TrimSpace(string(output))
-	absPath, err := filepath.Abs(gitDir)
-	if err != nil {
-		return "", err
-	}
-	return absPath, nil
-}

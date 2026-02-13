@@ -55,19 +55,12 @@ func init() {
 func runLoop(cmd *cobra.Command, args []string) error {
 	feature := args[0]
 
-	// Get project name
+	// Get project name and repo root
 	project, err := git.GetProjectName()
 	if err != nil {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
-	// Get main git dir for worktree support
-	mainGitDir, err := git.GetMainGitDir()
-	if err != nil {
-		return fmt.Errorf("failed to get main git dir: %w", err)
-	}
-
-	// Get repo root for loading config
 	repoRoot, err := git.GetRepoRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get repo root: %w", err)
@@ -79,19 +72,12 @@ func runLoop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load .vibe.yaml: %w", err)
 	}
 
+	// Resolve container name
+	containerName := resolveContainerName(project)
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
-
-	// Get worktree path
-	worktreePath, err := git.GetWorktreePath(project, feature)
-	if err != nil {
-		return fmt.Errorf("failed to get worktree path: %w", err)
-	}
-
-	// Check if worktree exists
-	if !git.WorktreeExists(worktreePath) {
-		return fmt.Errorf("worktree does not exist at %s - use 'vibe new %s' first", worktreePath, feature)
-	}
+	fmt.Printf("Container: %s\n", containerName)
 
 	// Create Docker client
 	dockerClient, err := docker.NewClient()
@@ -125,8 +111,8 @@ func runLoop(cmd *cobra.Command, args []string) error {
 	loopCfg := loop.Config{
 		Feature:           feature,
 		Project:           project,
-		WorktreePath:      worktreePath,
-		MainGitDir:        mainGitDir,
+		ContainerName:     containerName,
+		RepoPath:          repoRoot,
 		ExtraEnv:          vibeCfg.GetEnvValues(),
 		ExtraMounts:       vibeCfg.GetMounts(),
 		Network:           vibeCfg.Network,

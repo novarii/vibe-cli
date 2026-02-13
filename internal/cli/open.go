@@ -13,10 +13,10 @@ import (
 var openCmd = &cobra.Command{
 	Use:   "open <feature>",
 	Short: "Reopen an existing worktree and continue the Claude session",
-	Long: `Reopens an existing git worktree and continues the previous
-Claude Code session using the -c (continue) flag.
+	Long: `Reopens an existing git worktree inside the container and continues
+the previous Claude Code session using the -c (continue) flag.
 
-The worktree must already exist at ../worktrees/<project>/<feature>.`,
+The worktree must already exist at /worktrees/<feature> inside the container.`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runOpen,
 	Example: `  vibe open auth   # Continue working on auth feature`,
@@ -25,19 +25,12 @@ The worktree must already exist at ../worktrees/<project>/<feature>.`,
 func runOpen(cmd *cobra.Command, args []string) error {
 	feature := args[0]
 
-	// Get project name
+	// Get project name and repo root
 	project, err := git.GetProjectName()
 	if err != nil {
 		return fmt.Errorf("failed to detect project name: %w", err)
 	}
 
-	// Get main git dir for worktree support
-	mainGitDir, err := git.GetMainGitDir()
-	if err != nil {
-		return fmt.Errorf("failed to get main git dir: %w", err)
-	}
-
-	// Get repo root for loading config
 	repoRoot, err := git.GetRepoRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get repo root: %w", err)
@@ -49,19 +42,11 @@ func runOpen(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load .vibe.yaml: %w", err)
 	}
 
+	// Resolve container name
+	containerName := resolveContainerName(project)
+
 	fmt.Printf("Project: %s\n", project)
 	fmt.Printf("Feature: %s\n", feature)
-
-	// Get worktree path
-	worktreePath, err := git.GetWorktreePath(project, feature)
-	if err != nil {
-		return fmt.Errorf("failed to get worktree path: %w", err)
-	}
-
-	// Check if worktree exists
-	if !git.WorktreeExists(worktreePath) {
-		return fmt.Errorf("worktree does not exist at %s - use 'vibe new %s' to create it", worktreePath, feature)
-	}
 
 	// Create Docker client
 	dockerClient, err := docker.NewClient()
@@ -70,8 +55,9 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	}
 	defer dockerClient.Close()
 
-	// Ensure container is running with env vars and mounts from config
-	containerCfg := docker.DefaultContainerConfig(project, feature, worktreePath, mainGitDir)
+	// Ensure container is running
+	containerCfg := docker.DefaultContainerConfig(project, repoRoot)
+	containerCfg.Name = containerName
 	containerCfg.ExtraEnv = vibeCfg.GetEnvValues()
 	containerCfg.ExtraMounts = vibeCfg.GetMounts()
 	containerCfg.Network = vibeCfg.Network
@@ -79,19 +65,35 @@ func runOpen(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Check worktree exists inside container
+	cg := &git.ContainerGit{
+		Docker:        dockerClient,
+		ContainerName: containerName,
+	}
+
+	exists, err := cg.WorktreeExists(feature)
+	if err != nil {
+		return fmt.Errorf("failed to check worktree: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("worktree %s does not exist — use 'vibe new %s' to create it", feature, feature)
+	}
+
+	wtPath := config.WorktreePath(feature)
+
 	// Try to continue existing session, fall back to new session
-	fmt.Printf("\nStarting Claude in container %s...\n", containerCfg.Name)
-	fmt.Println("Press Ctrl+C to exit Claude and return to your shell.\n")
+	fmt.Printf("\nStarting Claude in container %s...\n", containerName)
+	fmt.Println("Press Ctrl+C to exit Claude and return to your shell.")
 
 	// First try with continue flag
-	claudeCmd := []string{"claude", "--dangerously-skip-permissions", "-c"}
-	exitCode, err := dockerClient.ExecInteractive(containerCfg.Name, claudeCmd)
+	claudeCmd := []string{"bash", "-c", fmt.Sprintf("cd %s && claude --dangerously-skip-permissions -c", wtPath)}
+	exitCode, err := dockerClient.ExecInteractive(containerName, claudeCmd)
 
 	// If continue failed (exit code 1 typically means no session), try without -c
 	if exitCode != 0 {
 		fmt.Println("\nNo existing session found, starting new session...")
-		claudeCmd = []string{"claude", "--dangerously-skip-permissions"}
-		exitCode, err = dockerClient.ExecInteractive(containerCfg.Name, claudeCmd)
+		claudeCmd = []string{"bash", "-c", fmt.Sprintf("cd %s && claude --dangerously-skip-permissions", wtPath)}
+		exitCode, err = dockerClient.ExecInteractive(containerName, claudeCmd)
 	}
 
 	if err != nil {

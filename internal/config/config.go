@@ -7,19 +7,27 @@ const (
 	// DefaultPromptFile is the default prompt file name
 	DefaultPromptFile = "prompt.md"
 
-	// DefaultWorktreeDir is the relative path for worktrees
-	DefaultWorktreeDir = "../worktrees"
+	// DefaultRepoMount is the container path where the repo is mounted
+	DefaultRepoMount = "/repo"
+
+	// DefaultWorktreeBase is the container path for worktrees
+	DefaultWorktreeBase = "/worktrees"
 
 	// DefaultMaxIterations is the default max iterations (0 = unlimited)
 	DefaultMaxIterations = 0
 )
 
-// ContainerName generates a container name from project and feature
-func ContainerName(project, feature string) string {
-	return "claude-" + project + "-" + feature
+// ContainerName generates a container name from project
+func ContainerName(project string) string {
+	return "vibe-" + project
 }
 
 // BranchName generates a branch name from feature
 func BranchName(feature string) string {
 	return "feature/" + feature
+}
+
+// WorktreePath returns the container path for a feature worktree
+func WorktreePath(feature string) string {
+	return DefaultWorktreeBase + "/" + feature
 }
