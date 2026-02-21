@@ -122,6 +122,10 @@ func (c *Client) EnsureContainer(cfg ContainerConfig) error {
 		return err
 	}
 
+	// Ensure /worktrees directory exists and is writable by the container user
+	c.ExecAsRoot(cfg.Name, []string{"mkdir", "-p", config.DefaultWorktreeBase})
+	c.ExecAsRoot(cfg.Name, []string{"chown", "agent:agent", config.DefaultWorktreeBase})
+
 	// Copy ~/.claude.json into container (not mounted to avoid corruption)
 	if _, err := os.Stat(claudeJson); err == nil {
 		fmt.Printf("Copying Claude config to container...\n")

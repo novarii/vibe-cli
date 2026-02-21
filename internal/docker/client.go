@@ -229,7 +229,37 @@ func (c *Client) ExecNonInteractive(containerName string, cmd []string) (int, st
 		return -1, stdoutBuf.String(), fmt.Errorf("failed to inspect exec: %w", err)
 	}
 
-	return inspect.ExitCode, stdoutBuf.String(), nil
+	// On failure, return stderr if stdout is empty (git writes errors to stderr)
+	output := stdoutBuf.String()
+	if inspect.ExitCode != 0 && output == "" {
+		output = stderrBuf.String()
+	}
+
+	return inspect.ExitCode, output, nil
+}
+
+// ExecAsRoot runs a command as root inside a container (best-effort, ignores errors)
+func (c *Client) ExecAsRoot(containerName string, cmd []string) {
+	execConfig := types.ExecConfig{
+		User:         "root",
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	execID, err := c.cli.ContainerExecCreate(c.ctx, containerName, execConfig)
+	if err != nil {
+		return
+	}
+
+	resp, err := c.cli.ContainerExecAttach(c.ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		return
+	}
+	defer resp.Close()
+
+	// Drain output to ensure command completes
+	io.Copy(io.Discard, resp.Reader)
 }
 
 // PullImage pulls a Docker image
