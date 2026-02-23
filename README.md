@@ -8,7 +8,7 @@ Vibe mounts your repo into a single long-lived Docker container and creates git 
 
 - **Single container** per project — shared filesystem, fast worktree creation
 - **Git worktrees** inside the container at `/worktrees/<feature>` for code isolation
-- **Loop mode** for running Claude repeatedly until task completion
+- **Loop mode** for running Claude repeatedly (in Ralph Wiggum loops) until task completion
 - **`.vibe.yaml`** for project-specific config (file copying, env vars, mounts, networking)
 
 ## Installation
